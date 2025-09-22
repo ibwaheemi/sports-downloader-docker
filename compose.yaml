@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  sports-downloader:
+    build: .
+    container_name: sports-downloader
+    restart: unless-stopped
+    
+    environment:
+      # Core Configuration
+      WEBSITE_URL: "https://basketballreplays.net"
+      DOWNLOAD_PATH: "/downloads"
+      CHECK_INTERVAL: "300"  # 300 seconds = 5 minutes
+      RETENTION_DAYS: "7"    # Keep files for 7 days
+      
+      # File Paths (usually don't need to change these)
+      DATA_FILE: "/var/lib/sports-downloader/sports_downloads.json"
+      KNOWN_LINKS_FILE: "/var/lib/sports-downloader/sports_known_links.json"
+      LOG_FILE: "/var/log/sports_downloader.log"
+      
+      # Download Settings
+      MAX_DOWNLOAD_TIME: "14400"     # 4 hours in seconds
+      MAX_FILE_SIZE: "16106127360"   # 15GB in bytes
+      
+      # Optional: Set specific start date (YYYY-MM-DD format)
+      # START_DATE: "2025-10-01"     # Uncomment to only download videos from specific date
+    
+    volumes:
+      # Downloads directory - change the left side to your desired path
+      - ./downloads:/downloads
+      
+      # Data persistence - keeps track of downloaded videos
+      - ./data:/var/lib/sports-downloader
+      
+      # Logs - optional, comment out if you don't want persistent logs
+      - ./logs:/var/log
+    
+    # Optional: Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "python3", "/app/sports_downloader.py", "--validate"]
+      interval: 30m
+      timeout: 30s
+      retries: 3
+      start_period: 2m
+
+# Optional: Create a network for isolation
+networks:
+  default:
+    driver: bridge
