@@ -461,65 +461,83 @@ class BasketballDownloader:
         except Exception as e:
             logging.error(f"Error scraping main website: {e}")
             return []
-    
 
     def find_okru_link(self, video_page_url):
-        """Find ok.ru link on a video page"""
-        try:
-            # Add delay and rotate user agent
-            time.sleep(random.uniform(2, 4))
-            self.session.headers['User-Agent'] = random.choice(USER_AGENTS)
-            
-            # Force a fresh request with explicit timeout
-            response = self.session.get(video_page_url, timeout=30, allow_redirects=True)
-            response.raise_for_status()
-            
-            soup = BeautifulSoup(response.content, 'html.parser')
-            
-            # Look for ok.ru links in various places
-            ok_links = []
-            
-            # Direct links
-            for link in soup.find_all('a', href=True):
-                href = link.get('href')
-                if 'ok.ru' in href:
-                    ok_links.append(href)
-            
-            # Embedded iframes
-            for iframe in soup.find_all('iframe', src=True):
-                src = iframe.get('src')
-                if 'ok.ru' in src:
-                    ok_links.append(src)
-            
-            # Look in script tags for embedded links
-            for script in soup.find_all('script'):
-                if script.string:
-                    ok_match = re.search(r'https?://[^"\']*ok\.ru[^"\']*', script.string)
-                    if ok_match:
-                        ok_links.append(ok_match.group(0))
-            
-            if ok_links:
-                # Prefer direct video links over embed pages
-                for link in ok_links:
-                    if '/video/' in link:
-                        logging.info(f"Found ok.ru link")
-                        return link
-                logging.info(f"Found ok.ru link")
-                return ok_links[0]
-            
-            logging.warning(f"No ok.ru links found on page")
-            return None
-            
-        except requests.Timeout:
-            logging.error(f"Timeout finding ok.ru link on {video_page_url}")
-            return None
-        except requests.exceptions.SSLError as e:
-            logging.error(f"SSL Error finding ok.ru link on {video_page_url}: {e}")
-            return None
-        except Exception as e:
-            logging.error(f"Error finding ok.ru link on {video_page_url}: {e}")
-            return None
-    
+            """Find ok.ru link on a video page"""
+            try:
+                # Add delay and rotate user agent
+                time.sleep(random.uniform(2, 4))
+                self.session.headers['User-Agent'] = random.choice(USER_AGENTS)
+                
+                # Force a fresh request with explicit timeout
+                response = self.session.get(video_page_url, timeout=30, allow_redirects=True)
+                response.raise_for_status()
+                
+                soup = BeautifulSoup(response.content, 'html.parser')
+                
+                # Look for ok.ru links in various places
+                ok_links = []
+                
+                # Direct links
+                for link in soup.find_all('a', href=True):
+                    href = link.get('href')
+                    if 'ok.ru' in href:
+                        ok_links.append(href)
+                
+                # Embedded iframes
+                for iframe in soup.find_all('iframe', src=True):
+                    src = iframe.get('src')
+                    if 'ok.ru' in src:
+                        ok_links.append(src)
+                
+                # Look in script tags for embedded links
+                for script in soup.find_all('script'):
+                    if script.string:
+                        ok_match = re.search(r'https?://[^"\']*ok\.ru[^"\']*', script.string)
+                        if ok_match:
+                            ok_links.append(ok_match.group(0))
+                
+                if ok_links:
+                    # Prefer direct video links over embed pages
+                    for link in ok_links:
+                        if '/video/' in link:
+                            logging.info(f"Found ok.ru link")
+                            return link
+                    logging.info(f"Found ok.ru link")
+                    return ok_links[0]
+
+                # No ok.ru found directly - look for intermediate pages and follow them
+                logging.info(f"No direct ok.ru link found, checking for intermediate pages...")
+                for link in soup.find_all('a', href=True):
+                    href = link.get('href')
+                    if not href or 'basketballreplays.net' in href:
+                        continue
+                    if href.startswith('http') and not any(href.endswith(ext) for ext in ['.jpg', '.png', '.css', '.js']):
+                        try:
+                            time.sleep(random.uniform(1, 2))
+                            inter_response = self.session.get(href, timeout=30, allow_redirects=True)
+                            # Search entire page source for any ok.ru link
+                            ok_match = re.search(r'https?://[^"\'<>\s]*ok\.ru[^"\'<>\s]*', inter_response.text)
+                            if ok_match:
+                                logging.info(f"Found ok.ru link via intermediate page: {href}")
+                                return ok_match.group(0)
+                        except Exception as e:
+                            logging.debug(f"Failed to fetch intermediate page {href}: {e}")
+                            continue
+
+                logging.warning(f"No ok.ru links found on page")
+                return None
+                
+            except requests.Timeout:
+                logging.error(f"Timeout finding ok.ru link on {video_page_url}")
+                return None
+            except requests.exceptions.SSLError as e:
+                logging.error(f"SSL Error finding ok.ru link on {video_page_url}: {e}")
+                return None
+            except Exception as e:
+                logging.error(f"Error finding ok.ru link on {video_page_url}: {e}")
+                return None
+
     def sanitize_filename(self, filename):
         """Sanitize filename for filesystem"""
         # Remove invalid characters
