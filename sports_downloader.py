@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Basketball Replay Downloader
-Monitors basketballreplays.net for new videos and downloads them from ok.ru
+Sports Replay Downloader
+Monitors replay sites for new videos and downloads them
 """
 
 import requests
@@ -431,7 +431,7 @@ class BasketballDownloader:
                     # Only include links that look like basketball game replays
                     if (any(keyword in text.lower() for keyword in 
                            ['vs', 'v.', 'game', 'replay', 'nba', 'basketball', 'highlights', 'final']) and
-                        'basketballreplays.net' in full_url and
+                        urlparse(WEBSITE_URL).netloc in full_url and
                         len(text) > 15):  # Longer titles are more likely to be games
                         
                         # Try to extract date from title first, fall back to pub_date from HTML
@@ -510,7 +510,7 @@ class BasketballDownloader:
                 logging.info(f"No direct ok.ru link found, checking for intermediate pages...")
                 for link in soup.find_all('a', href=True):
                     href = link.get('href')
-                    if not href or 'basketballreplays.net' in href:
+                    if not href or urlparse(WEBSITE_URL).netloc in href:
                         continue
                     if href.startswith('http') and not any(href.endswith(ext) for ext in ['.jpg', '.png', '.css', '.js']):
                         try:
