@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Sports Replay Downloader
-Monitors replay sites for new videos and downloads them
+Monitors replay websites for new videos and downloads them
 """
 
 import requests
@@ -60,12 +60,12 @@ logging.basicConfig(
     ]
 )
 
-class BasketballDownloader:
+class SportsDownloader:
     def __init__(self):
         self.session = self.create_session()
         
         # Create data directory if it doesn't exist
-        os.makedirs("/var/lib/basketball-downloader", exist_ok=True)
+        os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
         
         self.downloaded_videos = self.load_downloaded_list()
         self.known_links = self.load_known_links()
@@ -428,7 +428,7 @@ class BasketballDownloader:
                     
                     full_url = urljoin(WEBSITE_URL, href)
                     
-                    # Only include links that look like basketball game replays
+                    # Only include links that look like sports game replays
                     if (any(keyword in text.lower() for keyword in 
                            ['vs', 'v.', 'game', 'replay', 'nba', 'basketball', 'highlights', 'final']) and
                         urlparse(WEBSITE_URL).netloc in full_url and
@@ -462,52 +462,44 @@ class BasketballDownloader:
             logging.error(f"Error scraping main website: {e}")
             return []
 
-    def find_okru_link(self, video_page_url):
-            """Find ok.ru link on a video page"""
+    def find_video_link(self, video_page_url):
+            """Find video link on a video page - any platform or format"""
+            
+            VIDEO_DOMAINS = [
+                'ok.ru', 'dailymotion.com', 'youtube.com', 'youtu.be',
+                'vimeo.com', 'streamable.com', 'twitch.tv', 'rumble.com',
+                'facebook.com', 'fb.watch'
+            ]
+            VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.avi', '.mov', '.m3u8', '.ts', '.webm']
+
+            def find_in_text(text):
+                """Search raw text for any video link"""
+                for domain in VIDEO_DOMAINS:
+                    match = re.search(rf'https?://[^"\'<>\s]*{re.escape(domain)}[^"\'<>\s]*', text)
+                    if match:
+                        return match.group(0)
+                for ext in VIDEO_EXTENSIONS:
+                    match = re.search(rf'https?://[^"\'<>\s]*\{ext}[^"\'<>\s]*', text)
+                    if match:
+                        return match.group(0)
+                return None
+
             try:
-                # Add delay and rotate user agent
                 time.sleep(random.uniform(2, 4))
                 self.session.headers['User-Agent'] = random.choice(USER_AGENTS)
-                
-                # Force a fresh request with explicit timeout
+
                 response = self.session.get(video_page_url, timeout=30, allow_redirects=True)
                 response.raise_for_status()
-                
-                soup = BeautifulSoup(response.content, 'html.parser')
-                
-                # Look for ok.ru links in various places
-                ok_links = []
-                
-                # Direct links
-                for link in soup.find_all('a', href=True):
-                    href = link.get('href')
-                    if 'ok.ru' in href:
-                        ok_links.append(href)
-                
-                # Embedded iframes
-                for iframe in soup.find_all('iframe', src=True):
-                    src = iframe.get('src')
-                    if 'ok.ru' in src:
-                        ok_links.append(src)
-                
-                # Look in script tags for embedded links
-                for script in soup.find_all('script'):
-                    if script.string:
-                        ok_match = re.search(r'https?://[^"\']*ok\.ru[^"\']*', script.string)
-                        if ok_match:
-                            ok_links.append(ok_match.group(0))
-                
-                if ok_links:
-                    # Prefer direct video links over embed pages
-                    for link in ok_links:
-                        if '/video/' in link:
-                            logging.info(f"Found ok.ru link")
-                            return link
-                    logging.info(f"Found ok.ru link")
-                    return ok_links[0]
 
-                # No ok.ru found directly - look for intermediate pages and follow them
-                logging.info(f"No direct ok.ru link found, checking for intermediate pages...")
+                # Search the game page directly first
+                result = find_in_text(response.text)
+                if result:
+                    logging.info(f"Found video link directly on page: {result}")
+                    return result
+
+                # Nothing found directly - follow any external links on the page
+                logging.info(f"No direct video link found, checking intermediate pages...")
+                soup = BeautifulSoup(response.content, 'html.parser')
                 for link in soup.find_all('a', href=True):
                     href = link.get('href')
                     if not href or urlparse(WEBSITE_URL).netloc in href:
@@ -516,26 +508,25 @@ class BasketballDownloader:
                         try:
                             time.sleep(random.uniform(1, 2))
                             inter_response = self.session.get(href, timeout=30, allow_redirects=True)
-                            # Search entire page source for any ok.ru link
-                            ok_match = re.search(r'https?://[^"\'<>\s]*ok\.ru[^"\'<>\s]*', inter_response.text)
-                            if ok_match:
-                                logging.info(f"Found ok.ru link via intermediate page: {href}")
-                                return ok_match.group(0)
+                            result = find_in_text(inter_response.text)
+                            if result:
+                                logging.info(f"Found video link via intermediate page: {href}")
+                                return result
                         except Exception as e:
                             logging.debug(f"Failed to fetch intermediate page {href}: {e}")
                             continue
 
-                logging.warning(f"No ok.ru links found on page")
+                logging.warning(f"No video link found on page")
                 return None
-                
+
             except requests.Timeout:
-                logging.error(f"Timeout finding ok.ru link on {video_page_url}")
+                logging.error(f"Timeout finding video link on {video_page_url}")
                 return None
             except requests.exceptions.SSLError as e:
-                logging.error(f"SSL Error finding ok.ru link on {video_page_url}: {e}")
+                logging.error(f"SSL Error finding video link on {video_page_url}: {e}")
                 return None
             except Exception as e:
-                logging.error(f"Error finding ok.ru link on {video_page_url}: {e}")
+                logging.error(f"Error finding video link on {video_page_url}: {e}")
                 return None
 
     def sanitize_filename(self, filename):
@@ -557,8 +548,8 @@ class BasketballDownloader:
     
 
 
-    def download_video(self, okru_url, title):
-        """Download video from ok.ru using yt-dlp with resume capability"""
+    def download_video(self, video_link, title):
+        """Download video using yt-dlp with resume capability"""
         try:
             filename = self.sanitize_filename(title)
             filepath = os.path.join(DOWNLOAD_PATH, filename)
@@ -608,12 +599,12 @@ class BasketballDownloader:
                 logging.info(f"Found resumable partial download: {largest_partial[0]} ({largest_partial[1] / (1024*1024):.1f} MB)")
                 logging.info("yt-dlp will automatically resume from this point")
             
-            # Download using yt-dlp with OK.ru compatible format selection
+            # Download using yt-dlp with compatible format selection
             # Use temp file to track incomplete downloads
             cmd = [
                 'yt-dlp',
                 '--no-playlist',
-                '--format', 'hd/sd/low/lowest',  # OK.ru specific formats, best to worst
+                '--format', 'bestvideo+bestaudio/best',  # specific formats, best to worst
                 '--output', temp_filepath,
                 '--continue',  # Continue partial downloads
                 '--retries', '15',  # Increased retries
@@ -750,8 +741,8 @@ class BasketballDownloader:
             else:
                 logging.info(f"Processing new video: {title}")
             
-            # Find ok.ru link
-            okru_url = self.find_okru_link(video_url)
+            # Find video link
+            video_link = self.find_video_link(video_url)
             
             if okru_url:
                 logging.info(f"Starting download check for: {title}")
@@ -769,7 +760,7 @@ class BasketballDownloader:
                             'download_date': datetime.now().isoformat(),
                             'pub_date': pub_date.isoformat() if pub_date else None,
                             'source_url': video_url,
-                            'okru_url': okru_url
+                            'video_url': video_link
                         }
                         self.save_downloaded_list()
                         logging.info(f"Saved to database: {filename}")
@@ -787,7 +778,7 @@ class BasketballDownloader:
                     logging.error(f"Failed to download: {title}")
                     return {'status': 'failed', 'title': title}
             else:
-                logging.warning(f"No ok.ru link found for: {title}")
+                logging.warning(f"No video link found for: {title}")
                 self.mark_video_processed(video_url)
                 return {'status': 'no_link', 'title': title}
                 
@@ -798,7 +789,7 @@ class BasketballDownloader:
     def process_videos(self):
         """Main processing function"""
         # Prevent multiple instances from running simultaneously
-        lock_file = "/var/run/basketball-downloader.lock"
+        lock_file = os.path.join(os.path.dirname(DATA_FILE), "downloader.lock")
         import fcntl
         
         lock_fd = None
@@ -811,7 +802,7 @@ class BasketballDownloader:
         
         try:
             start_time = datetime.now()
-            logging.info("Starting basketball downloader run")
+            logging.info("Starting sports downloader run")
             logging.info("=" * 50)
             
             # First, check for resumable downloads
@@ -925,7 +916,7 @@ if __name__ == "__main__":
     import sys
     
     try:
-        downloader = BasketballDownloader()
+        downloader = SportsDownloader()
         downloader.process_videos()
             
     except KeyboardInterrupt:
